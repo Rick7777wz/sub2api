@@ -28,6 +28,12 @@ type Stripe struct {
 	sc          *stripe.Client
 }
 
+func init() {
+	register(payment.TypeStripe, func(instanceID string, config map[string]string) (payment.Provider, error) {
+		return NewStripe(instanceID, config)
+	})
+}
+
 // NewStripe creates a new Stripe provider instance.
 func NewStripe(instanceID string, config map[string]string) (*Stripe, error) {
 	if config["secretKey"] == "" {

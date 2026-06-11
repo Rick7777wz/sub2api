@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -12,19 +11,10 @@ import (
 	"go.uber.org/zap"
 )
 
-func (h *GatewayHandler) checkContentModeration(c *gin.Context, reqLog *zap.Logger, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol string, model string, body []byte) *service.ContentModerationDecision {
-	if h == nil || h.contentModerationService == nil {
-		return nil
-	}
-	return runContentModeration(c, reqLog, h.contentModerationService, apiKey, subject, protocol, model, body)
-}
-
-func contentModerationStatus(decision *service.ContentModerationDecision) int {
-	if decision == nil || decision.StatusCode < 400 || decision.StatusCode > 599 {
-		return http.StatusForbidden
-	}
-	return decision.StatusCode
-}
+// 本文件保留 WebSocket 调用点（openai_gateway_handler.go ResponsesWebSocket 的
+// turn-1 首帧与 turn≥2 每消息审核）仍在使用的内容审核 helper。
+// HTTP 调用点已迁移至 pre-flight 钩子链（见 gateway_preflight.go，SEAM-DESIGN 裁决 H：
+// WS 两点因每消息语义 + WS 帧错误格式排除在链改造之外，保持现状）。
 
 func contentModerationErrorCode(decision *service.ContentModerationDecision) string {
 	return "content_policy_violation"

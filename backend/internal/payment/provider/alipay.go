@@ -48,6 +48,12 @@ type Alipay struct {
 	client *alipay.Client
 }
 
+func init() {
+	register(payment.TypeAlipay, func(instanceID string, config map[string]string) (payment.Provider, error) {
+		return NewAlipay(instanceID, config)
+	})
+}
+
 // NewAlipay creates a new Alipay provider instance.
 func NewAlipay(instanceID string, config map[string]string) (*Alipay, error) {
 	required := []string{"appId", "privateKey"}

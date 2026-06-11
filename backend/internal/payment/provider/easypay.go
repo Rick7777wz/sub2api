@@ -41,6 +41,12 @@ type EasyPay struct {
 
 // NewEasyPay creates a new EasyPay provider.
 // config keys: pid, pkey, apiBase, notifyUrl, returnUrl, cid, cidAlipay, cidWxpay
+func init() {
+	register(payment.TypeEasyPay, func(instanceID string, config map[string]string) (payment.Provider, error) {
+		return NewEasyPay(instanceID, config)
+	})
+}
+
 func NewEasyPay(instanceID string, config map[string]string) (*EasyPay, error) {
 	for _, k := range []string{"pid", "pkey", "apiBase", "notifyUrl", "returnUrl"} {
 		if strings.TrimSpace(config[k]) == "" {
