@@ -14,19 +14,25 @@ import (
 )
 
 // Claude OAuth Constants
+//
+// These are aligned with the Claude Chrome-extension OAuth app (see the
+// standalone anthropic_oauth.py helper) so that tokens issued or imported here
+// can be refreshed with the same client_id. Refresh requests only send
+// client_id + refresh_token, so the client_id below is the value that governs
+// refresh compatibility.
 const (
-	// OAuth Client ID for Claude
-	ClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	// OAuth Client ID for Claude (Chrome extension app)
+	ClientID = "dae2cad8-15c5-43d2-9046-fcaecc135fa4"
 
 	// OAuth endpoints
 	AuthorizeURL = "https://claude.ai/oauth/authorize"
 	TokenURL     = "https://platform.claude.com/v1/oauth/token"
-	RedirectURI  = "https://platform.claude.com/oauth/code/callback"
+	RedirectURI  = "chrome-extension://fcoeoabgfenejglbffodgkkbkcdhcgfn/oauth_callback.html"
 
-	// Scopes - Browser URL (includes org:create_api_key for user authorization)
-	ScopeOAuth = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
-	// Scopes - Internal API call (org:create_api_key not supported in API)
-	ScopeAPI = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+	// Scopes - Browser URL
+	ScopeOAuth = "user:profile user:inference user:chat"
+	// Scopes - Internal API call (cookie-based auto-auth)
+	ScopeAPI = "user:profile user:inference user:chat"
 	// Scopes - Setup token (inference only)
 	ScopeInference = "user:inference"
 

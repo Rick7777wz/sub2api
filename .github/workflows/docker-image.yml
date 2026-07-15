@@ -1,0 +1,24 @@
+name: Build and Push Docker Image
+
+# Rebuilds and pushes the image to GHCR when you push code (e.g. after running
+# deploy/sync-upstream.sh locally) or cut a version tag. Actual build steps live
+# in the reusable build-image.yml.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-image.yml

@@ -1,0 +1,79 @@
+name: Sync Upstream and Rebuild
+
+# Weekly: merge the latest official release (Wei-Shaw/sub2api) into this fork
+# while keeping local changes (the Claude OAuth client_id), then rebuild the
+# GHCR image. If the merge hits a conflict the run fails and you resolve it
+# locally with deploy/sync-upstream.sh.
+on:
+  schedule:
+    # Every Monday 03:00 UTC.
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.merge.outputs.changed }}
+    steps:
+      - name: Checkout fork (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge latest upstream release
+        id: merge
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          UPSTREAM="https://github.com/Wei-Shaw/sub2api.git"
+          LATEST="$(git ls-remote --tags --refs --sort=-v:refname "$UPSTREAM" 'v*' \
+            | head -n1 | awk -F/ '{print $NF}')"
+          if [ -z "$LATEST" ]; then
+            echo "no upstream tag found; skipping"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "latest upstream tag: $LATEST"
+
+          git remote add upstream "$UPSTREAM" 2>/dev/null || true
+          git fetch upstream tag "$LATEST" --no-tags
+
+          BEFORE="$(git rev-parse HEAD)"
+          if ! git merge --no-edit "$LATEST"; then
+            echo "::error::merge conflict with $LATEST. Resolve locally via deploy/sync-upstream.sh."
+            git merge --abort || true
+            exit 1
+          fi
+          AFTER="$(git rev-parse HEAD)"
+
+          if [ "$BEFORE" = "$AFTER" ]; then
+            echo "already up to date with $LATEST"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git push origin main
+            echo "merged $LATEST and pushed"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  rebuild:
+    needs: sync
+    if: needs.sync.outputs.changed == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-image.yml
+    with:
+      ref: main
