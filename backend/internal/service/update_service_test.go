@@ -49,13 +49,15 @@ func (s *updateServiceGitHubClientStub) FetchChecksumFile(context.Context, strin
 	panic("FetchChecksumFile should not be called when no update is available")
 }
 
-func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
+func TestUpdateServicePerformUpdateDisabled(t *testing.T) {
+	// Even when a newer release exists upstream, in-app update is disabled on
+	// this customized fork so it never swaps in the official binary.
 	svc := NewUpdateService(
 		&updateServiceCacheStub{},
 		&updateServiceGitHubClientStub{
 			release: &GitHubRelease{
-				TagName: "v0.1.132",
-				Name:    "v0.1.132",
+				TagName: "v9.9.9",
+				Name:    "v9.9.9",
 			},
 		},
 		"0.1.132",
@@ -64,9 +66,7 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 
 	err := svc.PerformUpdate(context.Background())
 
-	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrNoUpdateAvailable))
-	require.ErrorIs(t, err, ErrNoUpdateAvailable)
+	require.ErrorIs(t, err, ErrUpdatesDisabled)
 }
 
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
@@ -145,43 +145,22 @@ func TestUpdateServiceListRollbackVersionsPropagatesFetchError(t *testing.T) {
 	require.Contains(t, err.Error(), "github unavailable")
 }
 
-func TestUpdateServiceRollbackToVersionRejectsDisallowedTargets(t *testing.T) {
+func TestUpdateServiceRollbackToVersionDisabled(t *testing.T) {
+	// Rollback (which would download an older official binary) is disabled on
+	// this customized fork regardless of the requested target.
 	releases := []*GitHubRelease{
 		{TagName: "v0.1.148"},
-		{TagName: "v0.1.147"},
 		{TagName: "v0.1.146"},
-		{TagName: "v0.1.145"},
-		{TagName: "v0.1.144"},
-		{TagName: "v0.1.143"},
-		{TagName: "v0.1.142"},
 	}
 	svc := newRollbackTestService("0.1.147", releases)
 
 	for _, target := range []string{
 		"",         // empty
-		"0.1.147",  // current version
-		"v0.1.147", // current version with prefix
-		"0.1.148",  // newer than current
-		"0.1.142",  // older than the 3 most recent
+		"0.1.146",  // otherwise-allowed older version
+		"v0.1.146", // with v prefix
 		"9.9.9",    // nonexistent
 	} {
 		err := svc.RollbackToVersion(context.Background(), target)
-		require.ErrorIs(t, err, ErrRollbackVersionNotAllowed, "target %q should be rejected", target)
+		require.ErrorIs(t, err, ErrUpdatesDisabled, "target %q should be blocked", target)
 	}
-}
-
-func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
-	// No platform asset in the release: the target passes the allowlist check
-	// and fails later at asset lookup, proving the version itself was accepted.
-	releases := []*GitHubRelease{
-		{TagName: "v0.1.147"},
-		{TagName: "v0.1.146"},
-	}
-	svc := newRollbackTestService("0.1.147", releases)
-
-	err := svc.RollbackToVersion(context.Background(), "v0.1.146")
-
-	require.Error(t, err)
-	require.NotErrorIs(t, err, ErrRollbackVersionNotAllowed)
-	require.Contains(t, err.Error(), "no compatible release found")
 }

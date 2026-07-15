@@ -25,6 +25,11 @@ import (
 var (
 	ErrNoUpdateAvailable         = infraerrors.Conflict("ALREADY_UP_TO_DATE", "no update available; current version is latest")
 	ErrRollbackVersionNotAllowed = infraerrors.BadRequest("ROLLBACK_VERSION_NOT_ALLOWED", "version is not in the allowed rollback list")
+	// ErrUpdatesDisabled guards the in-app self-updater. This is a customized
+	// fork whose binary carries local modifications; downloading and swapping in
+	// the official upstream binary would silently revert them. Updates must go
+	// through pulling the rebuilt Docker image instead.
+	ErrUpdatesDisabled = infraerrors.Forbidden("UPDATES_DISABLED", "in-app update/rollback is disabled in this deployment; update by pulling the Docker image")
 )
 
 const (
@@ -160,19 +165,11 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 	return info, nil
 }
 
-// PerformUpdate downloads and applies the update
-// Uses atomic file replacement pattern for safe in-place updates
+// PerformUpdate is intentionally disabled on this customized fork. Applying the
+// official upstream binary here would revert the local modifications compiled
+// into this image. Update by pulling the rebuilt Docker image instead.
 func (s *UpdateService) PerformUpdate(ctx context.Context) error {
-	info, err := s.CheckUpdate(ctx, true)
-	if err != nil {
-		return err
-	}
-
-	if !info.HasUpdate {
-		return ErrNoUpdateAvailable
-	}
-
-	return s.applyReleaseAssets(ctx, info.ReleaseInfo.Assets)
+	return ErrUpdatesDisabled
 }
 
 // applyReleaseAssets downloads the platform archive from the given release assets,
@@ -279,28 +276,9 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	return nil
 }
 
-// Rollback restores the previous version
+// Rollback is intentionally disabled on this customized fork (see PerformUpdate).
 func (s *UpdateService) Rollback() error {
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
-	}
-	exePath, err = filepath.EvalSymlinks(exePath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve symlinks: %w", err)
-	}
-
-	backupFile := exePath + ".backup"
-	if _, err := os.Stat(backupFile); os.IsNotExist(err) {
-		return fmt.Errorf("no backup found")
-	}
-
-	// Replace current with backup
-	if err := os.Rename(backupFile, exePath); err != nil {
-		return fmt.Errorf("rollback failed: %w", err)
-	}
-
-	return nil
+	return ErrUpdatesDisabled
 }
 
 // ListRollbackVersions returns up to maxRollbackVersions release versions that are
@@ -327,37 +305,7 @@ func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVer
 // The target must be one of the versions returned by ListRollbackVersions;
 // anything else (including the current version) is rejected.
 func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) error {
-	target := strings.TrimPrefix(strings.TrimSpace(version), "v")
-	if target == "" {
-		return ErrRollbackVersionNotAllowed
-	}
-
-	releases, err := s.fetchRollbackCandidates(ctx)
-	if err != nil {
-		return err
-	}
-
-	var match *GitHubRelease
-	for _, r := range releases {
-		if strings.TrimPrefix(r.TagName, "v") == target {
-			match = r
-			break
-		}
-	}
-	if match == nil {
-		return ErrRollbackVersionNotAllowed
-	}
-
-	assets := make([]Asset, len(match.Assets))
-	for i, a := range match.Assets {
-		assets[i] = Asset{
-			Name:        a.Name,
-			DownloadURL: a.BrowserDownloadURL,
-			Size:        a.Size,
-		}
-	}
-
-	return s.applyReleaseAssets(ctx, assets)
+	return ErrUpdatesDisabled
 }
 
 // fetchRollbackCandidates fetches recent releases and keeps the newest
