@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -26,6 +27,7 @@ type requestCapture struct {
 	cookies     []*http.Cookie
 	body        []byte
 	bodyJSON    map[string]any
+	form        url.Values
 	contentType string
 }
 
@@ -217,14 +219,14 @@ func (s *ClaudeOAuthServiceSuite) TestExchangeCodeForToken() {
 			},
 			validate: func(captured requestCapture) {
 				require.Equal(s.T(), http.MethodPost, captured.method, "expected POST")
-				require.True(s.T(), strings.HasPrefix(captured.contentType, "application/json"), "unexpected content-type")
-				require.Equal(s.T(), "AUTH", captured.bodyJSON["code"])
-				require.Equal(s.T(), "STATE2", captured.bodyJSON["state"])
-				require.Equal(s.T(), oauth.ClientID, captured.bodyJSON["client_id"])
-				require.Equal(s.T(), oauth.RedirectURI, captured.bodyJSON["redirect_uri"])
-				require.Equal(s.T(), "ver", captured.bodyJSON["code_verifier"])
+				require.True(s.T(), strings.HasPrefix(captured.contentType, "application/x-www-form-urlencoded"), "unexpected content-type: %s", captured.contentType)
+				require.Equal(s.T(), "AUTH", captured.form.Get("code"))
+				require.Equal(s.T(), "STATE2", captured.form.Get("state"))
+				require.Equal(s.T(), oauth.ClientID, captured.form.Get("client_id"))
+				require.Equal(s.T(), oauth.RedirectURI, captured.form.Get("redirect_uri"))
+				require.Equal(s.T(), "ver", captured.form.Get("code_verifier"))
 				// Regular OAuth should not include expires_in
-				require.Nil(s.T(), captured.bodyJSON["expires_in"], "regular OAuth should not include expires_in")
+				require.Empty(s.T(), captured.form.Get("expires_in"), "regular OAuth should not include expires_in")
 			},
 		},
 		{
@@ -243,7 +245,7 @@ func (s *ClaudeOAuthServiceSuite) TestExchangeCodeForToken() {
 				AccessToken: "at",
 			},
 			validate: func(captured requestCapture) {
-				require.Nil(s.T(), captured.bodyJSON["expires_in"], "setup token should not include expires_in")
+				require.Empty(s.T(), captured.form.Get("expires_in"), "setup token should not include expires_in")
 			},
 		},
 		{
@@ -266,7 +268,7 @@ func (s *ClaudeOAuthServiceSuite) TestExchangeCodeForToken() {
 				captured.method = r.Method
 				captured.contentType = r.Header.Get("Content-Type")
 				captured.body, _ = io.ReadAll(r.Body)
-				_ = json.Unmarshal(captured.body, &captured.bodyJSON)
+				captured.form, _ = url.ParseQuery(string(captured.body))
 				tt.handler(w, r)
 			}), nil)
 
@@ -302,7 +304,7 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 		validate func(captured requestCapture)
 	}{
 		{
-			name: "sends_json_format",
+			name: "sends_form_format",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(oauth.TokenResponse{
@@ -319,13 +321,12 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 			},
 			validate: func(captured requestCapture) {
 				require.Equal(s.T(), http.MethodPost, captured.method, "expected POST")
-				// 验证使用 JSON 格式（不是 form 格式）
-				require.True(s.T(), strings.HasPrefix(captured.contentType, "application/json"),
-					"expected JSON content-type, got: %s", captured.contentType)
-				// 验证 JSON body 内容
-				require.Equal(s.T(), "refresh_token", captured.bodyJSON["grant_type"])
-				require.Equal(s.T(), "rt", captured.bodyJSON["refresh_token"])
-				require.Equal(s.T(), oauth.ClientID, captured.bodyJSON["client_id"])
+				// 验证使用 form 格式（与 anthropic_oauth.py 对齐）
+				require.True(s.T(), strings.HasPrefix(captured.contentType, "application/x-www-form-urlencoded"),
+					"expected form content-type, got: %s", captured.contentType)
+				require.Equal(s.T(), "refresh_token", captured.form.Get("grant_type"))
+				require.Equal(s.T(), "rt", captured.form.Get("refresh_token"))
+				require.Equal(s.T(), oauth.ClientID, captured.form.Get("client_id"))
 			},
 		},
 		{
@@ -362,7 +363,7 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 				captured.method = r.Method
 				captured.contentType = r.Header.Get("Content-Type")
 				captured.body, _ = io.ReadAll(r.Body)
-				_ = json.Unmarshal(captured.body, &captured.bodyJSON)
+				captured.form, _ = url.ParseQuery(string(captured.body))
 				tt.handler(w, r)
 			}), nil)
 

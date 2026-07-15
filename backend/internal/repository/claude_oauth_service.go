@@ -177,28 +177,36 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 		return nil, fmt.Errorf("create HTTP client: %w", err)
 	}
 
-	// Parse code which may contain state in format "authCode#state"
-	authCode := code
-	codeState := ""
-	if idx := strings.Index(code, "#"); idx != -1 {
-		authCode = code[:idx]
-		codeState = code[idx+1:]
+	// The pasted value may be a full callback URL (including the chrome-extension
+	// redirect, e.g. chrome-extension://.../oauth_callback.html?code=X&state=Y),
+	// a raw query string, an "authCode#state" pair, or a bare code. Extract the
+	// authorization code and state from any of these forms.
+	authCode, codeState := parseAuthCodeAndState(code)
+	effectiveState := codeState
+	if effectiveState == "" {
+		effectiveState = state
 	}
 
-	reqBody := map[string]any{
-		"code":          authCode,
+	// Mirror the Chrome-extension OAuth app (see anthropic_oauth.py): send an
+	// application/x-www-form-urlencoded body that always includes state.
+	formData := map[string]string{
 		"grant_type":    "authorization_code",
 		"client_id":     oauth.ClientID,
+		"code":          authCode,
 		"redirect_uri":  oauth.RedirectURI,
 		"code_verifier": codeVerifier,
-	}
-
-	if codeState != "" {
-		reqBody["state"] = codeState
+		"state":         effectiveState,
 	}
 
 	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 3: Exchanging code for token at %s", s.tokenURL)
-	reqBodyJSON, _ := json.Marshal(logredact.RedactMap(reqBody))
+	reqBodyJSON, _ := json.Marshal(logredact.RedactMap(map[string]any{
+		"grant_type":    formData["grant_type"],
+		"client_id":     formData["client_id"],
+		"code":          formData["code"],
+		"redirect_uri":  formData["redirect_uri"],
+		"code_verifier": formData["code_verifier"],
+		"state":         formData["state"],
+	}))
 	logger.LegacyPrintf("repository.claude_oauth", "[OAuth] Step 3 Request Body: %s", string(reqBodyJSON))
 
 	var tokenResp oauth.TokenResponse
@@ -206,9 +214,8 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 	resp, err := client.R().
 		SetContext(ctx).
 		SetHeader("Accept", "application/json, text/plain, */*").
-		SetHeader("Content-Type", "application/json").
 		SetHeader("User-Agent", "axios/1.13.6").
-		SetBody(reqBody).
+		SetFormData(formData).
 		SetSuccessResult(&tokenResp).
 		Post(s.tokenURL)
 
@@ -233,7 +240,9 @@ func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, pro
 		return nil, fmt.Errorf("create HTTP client: %w", err)
 	}
 
-	reqBody := map[string]any{
+	// Mirror the Chrome-extension OAuth app (see anthropic_oauth.py): the token
+	// endpoint expects an application/x-www-form-urlencoded body.
+	formData := map[string]string{
 		"grant_type":    "refresh_token",
 		"refresh_token": refreshToken,
 		"client_id":     oauth.ClientID,
@@ -244,9 +253,8 @@ func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, pro
 	resp, err := client.R().
 		SetContext(ctx).
 		SetHeader("Accept", "application/json, text/plain, */*").
-		SetHeader("Content-Type", "application/json").
 		SetHeader("User-Agent", "axios/1.13.6").
-		SetBody(reqBody).
+		SetFormData(formData).
 		SetSuccessResult(&tokenResp).
 		Post(s.tokenURL)
 
@@ -259,6 +267,42 @@ func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, pro
 	}
 
 	return &tokenResp, nil
+}
+
+// parseAuthCodeAndState extracts the OAuth authorization code and state from a
+// pasted value that may be a full callback URL (including the chrome-extension
+// redirect), a raw query string ("code=...&state=..."), an "authCode#state"
+// pair, or a bare code.
+func parseAuthCodeAndState(raw string) (code string, state string) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", ""
+	}
+
+	if strings.Contains(value, "code=") {
+		if parsed, err := url.Parse(value); err == nil {
+			query := parsed.Query()
+			if len(query) == 0 && parsed.Fragment != "" {
+				if fragQuery, ferr := url.ParseQuery(strings.TrimLeft(parsed.Fragment, "#?")); ferr == nil {
+					query = fragQuery
+				}
+			}
+			if c := query.Get("code"); c != "" {
+				return c, query.Get("state")
+			}
+		}
+		if query, err := url.ParseQuery(strings.TrimLeft(value, "?#")); err == nil {
+			if c := query.Get("code"); c != "" {
+				return c, query.Get("state")
+			}
+		}
+	}
+
+	if idx := strings.Index(value, "#"); idx != -1 {
+		return value[:idx], value[idx+1:]
+	}
+
+	return value, ""
 }
 
 func createReqClient(proxyURL string) (*req.Client, error) {
