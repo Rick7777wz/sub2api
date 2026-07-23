@@ -20,16 +20,18 @@ import (
 
 func NewClaudeOAuthClient() service.ClaudeOAuthClient {
 	return &claudeOAuthService{
-		baseURL:       "https://claude.ai",
-		tokenURL:      oauth.TokenURL,
-		clientFactory: createReqClient,
+		baseURL:        "https://claude.ai",
+		tokenURL:       oauth.TokenURL,
+		deviceTokenURL: oauth.DeviceTokenURL,
+		clientFactory:  createReqClient,
 	}
 }
 
 type claudeOAuthService struct {
-	baseURL       string
-	tokenURL      string
-	clientFactory func(proxyURL string) (*req.Client, error)
+	baseURL        string
+	tokenURL       string
+	deviceTokenURL string
+	clientFactory  func(proxyURL string) (*req.Client, error)
 }
 
 func (s *claudeOAuthService) GetOrganizationUUID(ctx context.Context, sessionKey, proxyURL string) (string, error) {
@@ -234,10 +236,23 @@ func (s *claudeOAuthService) ExchangeCodeForToken(ctx context.Context, code, cod
 	return &tokenResp, nil
 }
 
-func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, proxyURL string) (*oauth.TokenResponse, error) {
+func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, proxyURL, clientID string) (*oauth.TokenResponse, error) {
+	// Device-flow tokens (imported from the claude.ai device authorization
+	// helper) are bound to oauth.DeviceClientID and must be refreshed against
+	// the claude.ai token endpoint with a JSON body. Everything else uses the
+	// default Chrome-extension app (platform.claude.com, form-encoded body).
+	if clientID == oauth.DeviceClientID {
+		return s.refreshTokenDevice(ctx, refreshToken, proxyURL)
+	}
+
 	client, err := s.clientFactory(proxyURL)
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP client: %w", err)
+	}
+
+	effectiveClientID := clientID
+	if effectiveClientID == "" {
+		effectiveClientID = oauth.ClientID
 	}
 
 	// Mirror the Chrome-extension OAuth app (see anthropic_oauth.py): the token
@@ -245,7 +260,7 @@ func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, pro
 	formData := map[string]string{
 		"grant_type":    "refresh_token",
 		"refresh_token": refreshToken,
-		"client_id":     oauth.ClientID,
+		"client_id":     effectiveClientID,
 	}
 
 	var tokenResp oauth.TokenResponse
@@ -257,6 +272,49 @@ func (s *claudeOAuthService) RefreshToken(ctx context.Context, refreshToken, pro
 		SetFormData(formData).
 		SetSuccessResult(&tokenResp).
 		Post(s.tokenURL)
+
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+
+	if !resp.IsSuccessState() {
+		return nil, fmt.Errorf("token refresh failed: status %d, body: %s", resp.StatusCode, resp.String())
+	}
+
+	return &tokenResp, nil
+}
+
+// refreshTokenDevice refreshes a device-flow token against the claude.ai token
+// endpoint (oauth.DeviceTokenURL). Mirrors claude_oauth_to_sui2api.py: a JSON
+// body carrying client_id + refresh_token.
+func (s *claudeOAuthService) refreshTokenDevice(ctx context.Context, refreshToken, proxyURL string) (*oauth.TokenResponse, error) {
+	client, err := s.clientFactory(proxyURL)
+	if err != nil {
+		return nil, fmt.Errorf("create HTTP client: %w", err)
+	}
+
+	tokenURL := s.deviceTokenURL
+	if tokenURL == "" {
+		tokenURL = oauth.DeviceTokenURL
+	}
+
+	reqBody := map[string]string{
+		"grant_type":    "refresh_token",
+		"client_id":     oauth.DeviceClientID,
+		"refresh_token": refreshToken,
+	}
+
+	var tokenResp oauth.TokenResponse
+
+	resp, err := client.R().
+		SetContext(ctx).
+		SetHeader("Accept", "application/json, text/plain, */*").
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Origin", "https://claude.ai").
+		SetHeader("Referer", "https://claude.ai/").
+		SetBody(reqBody).
+		SetSuccessResult(&tokenResp).
+		Post(tokenURL)
 
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)

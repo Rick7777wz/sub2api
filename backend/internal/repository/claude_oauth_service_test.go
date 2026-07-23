@@ -373,7 +373,7 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 			s.client.tokenURL = "http://in-process/token"
 			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
 
-			resp, err := s.client.RefreshToken(context.Background(), "rt", "")
+			resp, err := s.client.RefreshToken(context.Background(), "rt", "", "")
 
 			if tt.wantErr {
 				require.Error(s.T(), err)
@@ -388,6 +388,48 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 			}
 		})
 	}
+}
+
+// TestRefreshTokenDevice verifies that when the account's client_id is the
+// device-flow ID, refresh routes to the claude.ai endpoint with a JSON body
+// (mirrors claude_oauth_to_sui2api.py), not the default form-encoded endpoint.
+func (s *ClaudeOAuthServiceSuite) TestRefreshTokenDevice() {
+	var captured requestCapture
+
+	rt := newInProcessTransport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.method = r.Method
+		captured.contentType = r.Header.Get("Content-Type")
+		captured.body, _ = io.ReadAll(r.Body)
+		captured.bodyJSON = map[string]any{}
+		_ = json.Unmarshal(captured.body, &captured.bodyJSON)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(oauth.TokenResponse{
+			AccessToken:  "device_access_token",
+			TokenType:    "bearer",
+			ExpiresIn:    28800,
+			RefreshToken: "device_refresh_token",
+		})
+	}), nil)
+
+	client, ok := NewClaudeOAuthClient().(*claudeOAuthService)
+	require.True(s.T(), ok, "type assertion failed")
+	s.client = client
+	// Route both endpoints in-process; only the device one should be used here.
+	s.client.tokenURL = "http://in-process/form-token"
+	s.client.deviceTokenURL = "http://in-process/device-token"
+	s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
+
+	resp, err := s.client.RefreshToken(context.Background(), "rt", "", oauth.DeviceClientID)
+
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "device_access_token", resp.AccessToken)
+	require.Equal(s.T(), "device_refresh_token", resp.RefreshToken)
+	require.Equal(s.T(), http.MethodPost, captured.method)
+	require.True(s.T(), strings.HasPrefix(captured.contentType, "application/json"),
+		"expected JSON content-type, got: %s", captured.contentType)
+	require.Equal(s.T(), "refresh_token", captured.bodyJSON["grant_type"])
+	require.Equal(s.T(), "rt", captured.bodyJSON["refresh_token"])
+	require.Equal(s.T(), oauth.DeviceClientID, captured.bodyJSON["client_id"])
 }
 
 func TestClaudeOAuthServiceSuite(t *testing.T) {

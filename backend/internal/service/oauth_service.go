@@ -36,7 +36,11 @@ type ClaudeOAuthClient interface {
 	GetOrganizationUUID(ctx context.Context, sessionKey, proxyURL string) (string, error)
 	GetAuthorizationCode(ctx context.Context, sessionKey, orgUUID, scope, codeChallenge, state, proxyURL string) (string, error)
 	ExchangeCodeForToken(ctx context.Context, code, codeVerifier, state, proxyURL string, isSetupToken bool) (*oauth.TokenResponse, error)
-	RefreshToken(ctx context.Context, refreshToken, proxyURL string) (*oauth.TokenResponse, error)
+	// RefreshToken refreshes an OAuth token. clientID selects which OAuth app /
+	// token endpoint to use: an empty value (or the default Chrome-extension ID)
+	// uses the platform.claude.com form-encoded endpoint, while the device-flow
+	// ID (oauth.DeviceClientID) uses the claude.ai JSON endpoint.
+	RefreshToken(ctx context.Context, refreshToken, proxyURL, clientID string) (*oauth.TokenResponse, error)
 }
 
 // OAuthService handles OAuth authentication flows
@@ -282,9 +286,15 @@ func (s *OAuthService) exchangeCodeForToken(ctx context.Context, code, codeVerif
 	return tokenInfo, nil
 }
 
-// RefreshToken refreshes an OAuth token
+// RefreshToken refreshes an OAuth token using the default client.
 func (s *OAuthService) RefreshToken(ctx context.Context, refreshToken string, proxyURL string) (*TokenInfo, error) {
-	tokenResp, err := s.oauthClient.RefreshToken(ctx, refreshToken, proxyURL)
+	return s.refreshTokenWithClientID(ctx, refreshToken, proxyURL, "")
+}
+
+// refreshTokenWithClientID refreshes an OAuth token, routing to the token
+// endpoint bound to the given client_id (empty uses the default client).
+func (s *OAuthService) refreshTokenWithClientID(ctx context.Context, refreshToken, proxyURL, clientID string) (*TokenInfo, error) {
+	tokenResp, err := s.oauthClient.RefreshToken(ctx, refreshToken, proxyURL, clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +324,12 @@ func (s *OAuthService) RefreshAccountToken(ctx context.Context, account *Account
 		}
 	}
 
-	return s.RefreshToken(ctx, refreshToken, proxyURL)
+	// Honor the client_id stored in the account credentials so device-flow
+	// tokens (imported via the claude.ai device authorization helper) are
+	// refreshed against their own OAuth app/endpoint instead of the default one.
+	clientID := account.GetCredential("client_id")
+
+	return s.refreshTokenWithClientID(ctx, refreshToken, proxyURL, clientID)
 }
 
 // Stop stops the session store cleanup goroutine

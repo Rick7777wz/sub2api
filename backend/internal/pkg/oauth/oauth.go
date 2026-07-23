@@ -40,6 +40,22 @@ const (
 	SessionTTL = 30 * time.Minute
 )
 
+// Device-flow OAuth app (claude.ai device authorization, see the standalone
+// claude_oauth_to_sui2api.py helper). Tokens issued by this app carry
+// client_id in the imported account credentials and must be refreshed against
+// the claude.ai token endpoint with a JSON body instead of the
+// platform.claude.com form-encoded endpoint used by the default client above.
+const (
+	// DeviceClientID is the client_id used by the claude.ai device-authorization
+	// OAuth app. Accounts imported from that flow store this value in their
+	// credentials and refresh must use it (not the default Chrome-extension ID).
+	DeviceClientID = "966eba67-8b8c-4eae-bbb3-08361d1b9292"
+
+	// DeviceTokenURL is the token endpoint bound to DeviceClientID. Unlike the
+	// default platform.claude.com endpoint, it expects a JSON request body.
+	DeviceTokenURL = "https://claude.ai/v1/oauth/token"
+)
+
 // OAuthSession stores OAuth flow state
 
 type OAuthSession struct {
