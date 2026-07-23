@@ -27,6 +27,11 @@ services:
     image: ${SUB2API_IMAGE:?set SUB2API_IMAGE, e.g. ghcr.io/youruser/sub2api:latest}
     container_name: sub2api
     restart: unless-stopped
+    labels:
+      # Opt this container into the host's label-scoped Watchtower so it is
+      # auto-updated to :latest on Watchtower's daily schedule. postgres/redis
+      # are intentionally NOT labeled to avoid unattended data-store upgrades.
+      - "com.centurylinklabs.watchtower.enable=true"
     ulimits:
       nofile:
         soft: 100000
