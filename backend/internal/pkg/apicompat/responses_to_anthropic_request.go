@@ -24,6 +24,16 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		Stream:      req.Stream,
 	}
 
+	// Newer Claude models (e.g. claude-opus-4-6/4-8) reject requests that set
+	// both temperature and top_p ("`temperature` and `top_p` cannot both be
+	// specified for this model") and are deprecating top_p. Anthropic recommends
+	// adjusting only one sampling parameter, so when a client sends both (common
+	// with OpenAI-style SDKs that default both) keep temperature and drop top_p
+	// to stay compatible across models.
+	if out.Temperature != nil && out.TopP != nil {
+		out.TopP = nil
+	}
+
 	if len(system) > 0 {
 		out.System = system
 	}

@@ -100,3 +100,48 @@ func TestCCChain_WellFormedMultiRound(t *testing.T) {
 	}
 	require.True(t, sawA && sawB, "both well-formed calls should be preserved")
 }
+
+// Newer Claude models reject requests that specify both temperature and top_p.
+// A Chat Completions client that sends both must have top_p dropped through the
+// full production chain so the forwarded Anthropic body keeps only temperature.
+func TestCCChain_DropsTopPWhenBothSet(t *testing.T) {
+	temp := 0.7
+	topP := 0.9
+	ccReq := &ChatCompletionsRequest{
+		Model:       "claude-opus-4-6",
+		Temperature: &temp,
+		TopP:        &topP,
+		Messages: []ChatMessage{
+			{Role: "user", Content: json.RawMessage(`"hello"`)},
+		},
+	}
+	respReq, err := ChatCompletionsToResponses(ccReq)
+	require.NoError(t, err)
+	anthReq, err := ResponsesToAnthropicRequest(respReq)
+	require.NoError(t, err)
+
+	require.NotNil(t, anthReq.Temperature, "temperature should be preserved")
+	require.InDelta(t, temp, *anthReq.Temperature, 1e-9)
+	require.Nil(t, anthReq.TopP, "top_p should be dropped when temperature is also set")
+}
+
+// When only top_p is provided (no temperature), it must be preserved so older
+// models that accept top_p alone keep working.
+func TestCCChain_KeepsTopPWhenTemperatureAbsent(t *testing.T) {
+	topP := 0.9
+	ccReq := &ChatCompletionsRequest{
+		Model: "claude-3-5-sonnet",
+		TopP:  &topP,
+		Messages: []ChatMessage{
+			{Role: "user", Content: json.RawMessage(`"hello"`)},
+		},
+	}
+	respReq, err := ChatCompletionsToResponses(ccReq)
+	require.NoError(t, err)
+	anthReq, err := ResponsesToAnthropicRequest(respReq)
+	require.NoError(t, err)
+
+	require.Nil(t, anthReq.Temperature)
+	require.NotNil(t, anthReq.TopP, "top_p alone should be preserved")
+	require.InDelta(t, topP, *anthReq.TopP, 1e-9)
+}
