@@ -25,7 +25,7 @@ const (
 	ClientID = "dae2cad8-15c5-43d2-9046-fcaecc135fa4"
 
 	// OAuth endpoints
-	AuthorizeURL = "https://claude.ai/oauth/authorize"
+	AuthorizeURL = "https://claude.com/cai/oauth/authorize"
 	TokenURL     = "https://platform.claude.com/v1/oauth/token"
 	RedirectURI  = "chrome-extension://fcoeoabgfenejglbffodgkkbkcdhcgfn/oauth_callback.html"
 
