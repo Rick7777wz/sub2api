@@ -1,6 +1,6 @@
 name: Sync Upstream and Rebuild
 
-# Weekly: merge the latest official release (Wei-Shaw/sub2api) into this fork
+# Daily: merge the latest official release (Wei-Shaw/sub2api) into this fork
 # while keeping local changes (the Claude OAuth client_id), then rebuild the
 # GHCR image. If the merge hits a conflict the run fails and you resolve it
 # locally with deploy/sync-upstream.sh.
@@ -12,8 +12,11 @@ name: Sync Upstream and Rebuild
 # CI definitions are not needed here.
 on:
   schedule:
-    # Every Monday 03:00 UTC.
-    - cron: "0 3 * * 1"
+    # Daily 18:40 UTC = 02:40 Asia/Shanghai, which lands the rebuilt image on
+    # GHCR ~2h before the server's 04:30 CST Watchtower pull, so a sync is
+    # deployed the same night instead of waiting for the next day. Off the hour
+    # because scheduled runs are most likely to be delayed at :00.
+    - cron: "40 18 * * *"
   workflow_dispatch:
 
 permissions:
