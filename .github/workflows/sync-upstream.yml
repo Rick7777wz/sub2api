@@ -60,10 +60,15 @@ jobs:
           PREV="$(gh run list --workflow sync-upstream.yml --branch main \
             --status completed --limit 1 --json conclusion --jq '.[0].conclusion' \
             2>/dev/null || echo unknown)"
+          # Any non-success conclusion can leave a merge on main whose image was
+          # never built, so match all of them -- checking only "failure" would let
+          # a cancelled or timed-out build freeze the image just the same. An
+          # unreadable conclusion stays false on purpose, so a broken query
+          # degrades to the old behaviour instead of rebuilding every day.
           RETRY=false
-          if [ "$PREV" = "failure" ]; then
-            RETRY=true
-          fi
+          case "$PREV" in
+            failure|cancelled|timed_out|startup_failure) RETRY=true ;;
+          esac
           echo "previous completed run: $PREV (retry build: $RETRY)"
 
           UPSTREAM="https://github.com/Wei-Shaw/sub2api.git"
