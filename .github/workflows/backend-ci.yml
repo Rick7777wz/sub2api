@@ -29,7 +29,11 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.5'
+          # Derived from go.mod instead of hardcoded: this fork pins
+          # .github/workflows/ (see sync-upstream.yml), so a literal version here
+          # goes stale and reds out CI the moment upstream bumps the requirement.
+          want="$(awk '/^go [0-9]/ {print $2; exit}' backend/go.mod)"
+          go version | grep -q "go${want}"
       - name: Unit tests
         working-directory: backend
         run: make test-unit
@@ -69,7 +73,11 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.5'
+          # Derived from go.mod instead of hardcoded: this fork pins
+          # .github/workflows/ (see sync-upstream.yml), so a literal version here
+          # goes stale and reds out CI the moment upstream bumps the requirement.
+          want="$(awk '/^go [0-9]/ {print $2; exit}' backend/go.mod)"
+          go version | grep -q "go${want}"
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
