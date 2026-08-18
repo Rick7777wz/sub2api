@@ -22,6 +22,10 @@ on:
 permissions:
   contents: write
   packages: write
+  # Needed by `gh run list` below: naming any scope sets every unnamed one to
+  # none, so without this the previous run's conclusion cannot be read and the
+  # failed-build retry would silently never trigger.
+  actions: read
 
 concurrency:
   group: sync-upstream
