@@ -36,6 +36,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Upstream pins ARG GOLANG_IMAGE to an exact patch (e.g. golang:1.26.5-alpine)
+      # and has shipped tags where backend/go.mod already required a newer patch.
+      # The official Go images set GOTOOLCHAIN=local, so the build then dies with
+      # "go.mod requires go >= X (running Y)". Derive the builder image from go.mod
+      # and keep only major.minor so the newest matching patch is always used.
+      - name: Resolve Go builder image from go.mod
+        id: goimage
+        run: |
+          set -euo pipefail
+          want="$(awk '/^go [0-9]/ {print $2; exit}' backend/go.mod)"
+          if [ -z "$want" ]; then
+            echo "::error::could not read the go directive from backend/go.mod"
+            exit 1
+          fi
+          minor="$(printf '%s' "$want" | cut -d. -f1,2)"
+          echo "image=golang:${minor}-alpine" >> "$GITHUB_OUTPUT"
+          echo "go.mod wants go $want -> using golang:${minor}-alpine"
+
       - name: Compute image metadata (tags + labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -61,6 +79,7 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             COMMIT=${{ github.sha }}
+            GOLANG_IMAGE=${{ steps.goimage.outputs.image }}
             GOPROXY=https://proxy.golang.org,direct
             GOSUMDB=sum.golang.org
 

@@ -42,17 +42,32 @@ jobs:
 
       - name: Merge latest upstream release
         id: merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # A failed run usually means the merge landed on main but the image build
+          # died, and every later run would then report "already up to date" and skip
+          # the rebuild -- freezing the deployed image indefinitely. So retry the
+          # build after a failure even when there is nothing new to merge.
+          PREV="$(gh run list --workflow sync-upstream.yml --branch main \
+            --status completed --limit 1 --json conclusion --jq '.[0].conclusion' \
+            2>/dev/null || echo unknown)"
+          RETRY=false
+          if [ "$PREV" = "failure" ]; then
+            RETRY=true
+          fi
+          echo "previous completed run: $PREV (retry build: $RETRY)"
+
           UPSTREAM="https://github.com/Wei-Shaw/sub2api.git"
           LATEST="$(git ls-remote --tags --refs --sort=-v:refname "$UPSTREAM" 'v*' \
             | head -n1 | awk -F/ '{print $NF}')"
           if [ -z "$LATEST" ]; then
-            echo "no upstream tag found; skipping"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "no upstream tag found; skipping merge"
+            echo "changed=$RETRY" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "latest upstream tag: $LATEST"
@@ -85,8 +100,8 @@ jobs:
 
           AFTER="$(git rev-parse HEAD)"
           if [ "$BEFORE" = "$AFTER" ]; then
-            echo "already up to date with $LATEST"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "already up to date with $LATEST (rebuild anyway: $RETRY)"
+            echo "changed=$RETRY" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
